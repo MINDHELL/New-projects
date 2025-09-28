@@ -1,0 +1,164 @@
+!pip install pyrogram tgcrypto nest_asyncio
+
+import nest_asyncio
+nest_asyncio.apply()
+
+import asyncio
+from pyrogram import Client, filters
+
+# ==============================
+# 🔑 Telegram Vars
+# ==============================
+API_ID = 27788368
+API_HASH = "9df7e9ef3d7e4145270045e5e43e1081"
+BOT_TOKEN = "7966750735:AAHxPgOt5BiBiOgRymZf4ra70guWtrZ0PSY"
+OWNER_ID = 6860316927
+# ==============================
+# 📌 Permanent captions
+# ==============================
+CAPTION_TOP = "ADULT CONTENT ❤️\n\n♾️ CONTENT"
+CAPTION_BOTTOM = "MUST JOIN @ALLVIDSBACKUP3 ❤."
+
+# ==============================
+# 📌 Bot
+# ==============================
+app = Client("numbered_links_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+
+# Store user sessions and state
+user_data = {}  # {user_id: {"links": [], "state": "", "start":1, "end":None, "font":"plain"}}
+
+# ------------------------------
+# Helper to apply font
+def apply_font(text, font_type):
+    if font_type == "bold":
+        return f"**{text}**"
+    elif font_type == "italic":
+        return f"_{text}_"
+    elif font_type == "monospace":
+        return f"`{text}`"
+    elif font_type == "emoji":
+        return f"🔹 {text}"
+    else:
+        return text  # plain
+
+# ------------------------------
+@app.on_message(filters.command("start"))
+async def start(_, msg):
+    user_id = msg.from_user.id
+    user_data[user_id] = {"links": [], "state": "collect", "start": 1, "end": None, "font": "plain"}
+    await msg.reply(
+        f"👋 Hello! I am your Numbered Links Bot.\n"
+        f"Send me links (one by one or multiple per message).\n"
+        f"When done, type /done.\n\n"
+        f"Permanent top caption: {CAPTION_TOP}\n"
+        f"Permanent bottom caption: {CAPTION_BOTTOM}"
+    )
+
+@app.on_message(filters.command("done"))
+async def done_links(_, msg):
+    user_id = msg.from_user.id
+    if user_id not in user_data or not user_data[user_id]["links"]:
+        await msg.reply("⚠️ No links collected. Send links first.")
+        return
+
+    user_data[user_id]["state"] = "ask_range"
+    await msg.reply(
+        "✅ Links collected!\nNow, enter the starting number or range.\n"
+        "Example: `1` or `20-40`"
+    )
+
+@app.on_message(filters.text)
+async def handle_text(_, msg):
+    user_id = msg.from_user.id
+    text = msg.text.strip()
+
+    # Initialize user session if not exists
+    if user_id not in user_data:
+        user_data[user_id] = {"links": [], "state": "collect", "start": 1, "end": None, "font": "plain"}
+
+    # Ignore commands here
+    if text.startswith("/"):
+        return
+
+    state = user_data[user_id]["state"]
+
+    # ------------------------------
+    # Step 1: Collect links
+    if state == "collect":
+        links = [l for l in text.split() if l.startswith("http")]
+        if not links:
+            await msg.reply("⚠️ No valid links detected. Please send links starting with http.")
+            return
+        user_data[user_id]["links"].extend(links)
+        await msg.reply(f"✅ Added {len(links)} link(s). Send /done when finished.")
+
+    # ------------------------------
+    # Step 2: Ask for range
+    elif state == "ask_range":
+        if "-" in text:
+            parts = text.split("-")
+            if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+                start = int(parts[0])
+                end = int(parts[1])
+                user_data[user_id]["start"] = start
+                user_data[user_id]["end"] = end
+            else:
+                await msg.reply("⚠️ Invalid format. Example: 20-40 or 1")
+                return
+        elif text.isdigit():
+            user_data[user_id]["start"] = int(text)
+            user_data[user_id]["end"] = None
+        else:
+            await msg.reply("⚠️ Invalid input. Example: 1 or 20-40")
+            return
+
+        user_data[user_id]["state"] = "ask_font"
+        await msg.reply(
+            "✅ Range set! Choose font style:\n"
+            "`plain`, `bold`, `italic`, `monospace`, `emoji`"
+        )
+
+    # ------------------------------
+    # Step 3: Ask font and send links
+    elif state == "ask_font":
+        font_choice = text.lower()
+        if font_choice not in ["plain", "bold", "italic", "monospace", "emoji"]:
+            await msg.reply("⚠️ Invalid choice. Type one of: plain, bold, italic, monospace, emoji")
+            return
+
+        user_data[user_id]["font"] = font_choice
+        user_data[user_id]["state"] = "done_sending"
+
+        # Prepare numbered links
+        start = user_data[user_id]["start"]
+        end = user_data[user_id]["end"]
+        font = user_data[user_id]["font"]
+        links = user_data[user_id]["links"]
+
+        numbered_text = f"{CAPTION_TOP}\n\n"
+        for i, link in enumerate(links, start=start):
+            if end is not None and i > end:
+                break
+            numbered_text += f"{i}.\n{apply_font(link, font)}\n\n"
+        numbered_text += f"{CAPTION_BOTTOM}"
+
+        # Split long messages
+        chunks = [numbered_text[i:i+4000] for i in range(0, len(numbered_text), 4000)]
+        for chunk in chunks:
+            await msg.reply(chunk)
+
+        # Reset user session
+        user_data[user_id] = {"links": [], "state": "collect", "start":1, "end":None, "font":"plain"}
+
+# ------------------------------
+# Run Bot
+async def run():
+    await app.start()
+    print("🤖 Bot is running...")
+    try:
+        await app.send_message(OWNER_ID, "✅ Numbered Links Bot has started successfully!")
+    except:
+        pass
+    await asyncio.Event().wait()  # Keep running
+
+asyncio.run(run())
