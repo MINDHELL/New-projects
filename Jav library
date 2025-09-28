@@ -1,0 +1,81 @@
+!pip install pyrogram tgcrypto playwright asyncio bs4 --quiet
+!playwright install chromium
+
+import asyncio
+from pyrogram import Client, filters
+from bs4 import BeautifulSoup
+from playwright.async_api import async_playwright
+
+API_ID = 27788368
+API_HASH = "9df7e9ef3d7e4145270045e5e43e1081"
+BOT_TOKEN = "8313206425:AAGgBOClM5-Hb2kPcVnK7maqEcSOc-_BRCc"
+
+app = Client("javb6ot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+
+# ==============================
+# Fetch JAV info using Playwright
+# ==============================
+async def fetch_jav_info(code):
+    url = f"https://www.javlibrary.com/en/?v={code}"
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        page = await browser.new_page()
+        try:
+            await page.goto(url, timeout=15000)
+            html = await page.content()
+            soup = BeautifulSoup(html, "html.parser")
+
+            # Title
+            title = soup.select_one("h3").text.strip() if soup.select_one("h3") else "Not found"
+
+            # Cover
+            cover_tag = soup.select_one("div#video_jacket img")
+            cover = "https:" + cover_tag["src"] if cover_tag else None
+
+            # Actresses
+            actresses = [a.text.strip() for a in soup.select("span.star-name a")]
+            actresses_text = ", ".join(actresses) if actresses else "Not found"
+
+            # Release date
+            date_tag = soup.find("td", text="Release Date:")
+            date = date_tag.find_next_sibling("td").text.strip() if date_tag else "Not found"
+
+            await browser.close()
+            return {"title": title, "code": code, "cover": cover, "actresses": actresses_text, "date": date}
+        except:
+            await browser.close()
+            return None
+
+# ==============================
+# Telegram command
+# ==============================
+@app.on_message(filters.private & filters.command("jav"))
+def jav_handler(client, message):
+    if len(message.command) < 2:
+        message.reply("Please provide a JAV code. Example:\n/jav ABP-123")
+        return
+
+    code = message.command[1].upper()
+
+    info = asyncio.run(fetch_jav_info(code))
+
+    if not info or info['title'] == "Not found":
+        message.reply("JAV not found or invalid code.")
+        return
+
+    text = f"**Title:** {info['title']}\n**Code:** {info['code']}\n**Actresses:** {info['actresses']}\n**Release Date:** {info['date']}"
+
+    if info['cover']:
+        message.reply_photo(photo=info['cover'], caption=text)
+    else:
+        message.reply(text)
+
+# ==============================
+# Start bot
+# ==============================
+async def main():
+    await app.start()
+    print("Bot started. Listening for messages...")
+    await asyncio.Event().wait()
+
+asyncio.run(main())
